@@ -242,9 +242,8 @@ async function sendBroadcast(guild, messageText, status, interaction) {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
-    const statusText = status ? `(${status})` : '(الجميع)';
     return interaction.editReply({
-      content: `✅ تم إرسال الرسالة بنجاح!\n📊 الإحصائيات:\n✔️ تم إرسالها إلى: **${sentCount}** عضو\n❌ فشل الإرسال: **${failedCount}** عضو\n📌 نوع البث: **${statusText}**`
+      content: `✅ تم إرسال الرسالة بنجاح!\n📊 الإحصائيات:\n✔️ تم إرسالها إلى: **${sentCount}** عضو\n❌ فشل الإرسال: **${failedCount}** عضو`
     });
   } catch (error) {
     console.error('sendBroadcast error:', error);
@@ -280,7 +279,7 @@ async function sendBroadcastByRole(guild, messageText, roleId, interaction) {
     }
 
     return interaction.editReply({
-      content: `✅ تم إرسال الرسالة بنجاح!\n📊 الإحصائيات:\n✔️ تم إرسالها إلى: **${sentCount}** عضو\n❌ فشل الإرسال: **${failedCount}** عضو\n📌 الرتبة المختارة: **${roleName}**`
+      content: `✅ تم إرسال الرسالة بنجاح للرتبة: **${roleName}**\n📊 الإحصائيات:\n✔️ تم إرسالها إلى: **${sentCount}** عضو\n❌ فشل الإرسال: **${failedCount}** عضو`
     });
   } catch (error) {
     console.error('sendBroadcastByRole error:', error);
