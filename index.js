@@ -21,8 +21,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildPresences
+    GatewayIntentBits.GuildMembers
   ],
   partials: [Partials.GuildMember]
 });
@@ -226,8 +225,6 @@ async function sendBroadcast(guild, messageText, status, interaction) {
 
     for (const member of members.values()) {
       if (member.user.bot) continue;
-
-      if (status && member.presence?.status !== status) continue;
 
       try {
         await member.send({
