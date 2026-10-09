@@ -2,9 +2,9 @@
   "name": "discord-broadcast-bot",
   "version": "1.0.0",
   "description": "Discord broadcast bot with slash commands",
-  "main": "main.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node main.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "discord.js": "^14.16.3",
