@@ -27,37 +27,37 @@ const client = new Client({
 });
 
 const bcCommand = new SlashCommandBuilder()
-  .setName('bc')
+  .setName('broadcast')
   .setDescription('فتح لوحة البث');
 
 client.once('ready', async () => {
-  console.log('Bot is Ready!');
-  client.user.setActivity('/bc للبث', { type: 'LISTENING' });
+  console.log('✅ Bot is Ready!');
+  client.user.setActivity('/broadcast البث', { type: 'LISTENING' });
 
   try {
     await client.application.commands.set([bcCommand.toJSON()], guildId);
-    console.log('Slash command registered successfully');
+    console.log('✅ Slash command registered successfully');
   } catch (error) {
-    console.error('Error registering slash command:', error);
+    console.error('❌ Error registering slash command:', error);
   }
 });
 
 client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === 'bc') {
+      if (interaction.commandName === 'broadcast') {
         const member = interaction.guild.members.cache.get(interaction.user.id);
 
         if (!member || !member.roles.cache.has(allowedRoleId)) {
           return interaction.reply({
-            content: 'ليس لديك صلاحية لاستخدام هذا الأمر!',
+            content: '❌ ليس لديك صلاحية لاستخدام هذا الأمر!',
             ephemeral: true
           });
         }
 
         const embed = new EmbedBuilder()
           .setColor('#000000')
-          .setTitle('لوحة تحكم البرودكاست')
+          .setTitle('🎙️ لوحة تحكم البث')
           .setImage(image)
           .setDescription('الرجاء اختيار نوع الإرسال للأعضاء.');
 
@@ -83,8 +83,8 @@ client.on('interactionCreate', async (interaction) => {
             .setStyle(ButtonStyle.Secondary),
 
           new ButtonBuilder()
-            .setCustomId('send_to_channel')
-            .setLabel('ارسل إلى روم معين')
+            .setCustomId('send_to_user')
+            .setLabel('ارسل لشخص معين')
             .setStyle(ButtonStyle.Secondary)
         );
 
@@ -107,35 +107,35 @@ client.on('interactionCreate', async (interaction) => {
         modalId = 'modal_offline';
       } else if (interaction.customId === 'send_by_role') {
         modalId = 'modal_by_role';
-      } else if (interaction.customId === 'send_to_channel') {
-        modalId = 'modal_to_channel';
+      } else if (interaction.customId === 'send_to_user') {
+        modalId = 'modal_to_user';
       }
 
       if (!modalId) return;
 
       const modal = new ModalBuilder()
         .setCustomId(modalId)
-        .setTitle('اكتب رسالتك');
+        .setTitle('✍️ اكتب رسالتك');
 
       const messageInput = new TextInputBuilder()
         .setCustomId('messageInput')
         .setLabel('اكتب رسالتك هنا')
         .setStyle(TextInputStyle.Paragraph);
 
-      if (modalId === 'modal_to_channel') {
-        const channelInput = new TextInputBuilder()
-          .setCustomId('channelInput')
-          .setLabel('أدخل معرف الروم')
+      if (modalId === 'modal_to_user') {
+        const userInput = new TextInputBuilder()
+          .setCustomId('userInput')
+          .setLabel('أدخل معرف المستخدم (User ID)')
           .setStyle(TextInputStyle.Short);
 
         modal.addComponents(
           new ActionRowBuilder().addComponents(messageInput),
-          new ActionRowBuilder().addComponents(channelInput)
+          new ActionRowBuilder().addComponents(userInput)
         );
       } else if (modalId === 'modal_by_role') {
         const roleInput = new TextInputBuilder()
           .setCustomId('roleInput')
-          .setLabel('أدخل معرف الرتبة')
+          .setLabel('أدخل معرف الرتبة (Role ID)')
           .setStyle(TextInputStyle.Short);
 
         modal.addComponents(
@@ -160,25 +160,19 @@ client.on('interactionCreate', async (interaction) => {
 
       await interaction.deferReply({ ephemeral: true });
 
-      if (interaction.customId === 'modal_to_channel') {
-        const channelId = interaction.fields.getTextInputValue('channelInput');
-        const targetChannel = guild.channels.cache.get(channelId);
-
-        if (!targetChannel || targetChannel.type !== 0) {
-          return interaction.editReply({
-            content: '❌ الروم غير موجود أو المعرف غير صالح.'
-          });
-        }
-
+      if (interaction.customId === 'modal_to_user') {
+        const userId = interaction.fields.getTextInputValue('userInput');
+        
         try {
-          await targetChannel.send({ content: messageText });
+          const user = await client.users.fetch(userId);
+          await user.send({ content: messageText });
           return interaction.editReply({
-            content: '✅ تم إرسال الرسالة إلى الروم المحدد بنجاح.'
+            content: `✅ تم إرسال الرسالة إلى ${user.username} بنجاح!`
           });
         } catch (error) {
           console.error(error);
           return interaction.editReply({
-            content: '❌ حدث خطأ أثناء إرسال الرسالة إلى الروم.'
+            content: '❌ حدث خطأ أثناء إرسال الرسالة إلى المستخدم.\n💡 تأكد من أن معرف المستخدم صحيح.'
           });
         }
       }
@@ -239,8 +233,9 @@ async function sendBroadcast(guild, messageText, status, interaction) {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
+    const statusText = status ? `(${status === 'online' ? 'المتصلين' : 'الغير متصلين'})` : '(الجميع)';
     return interaction.editReply({
-      content: `✅ تم إرسال الرسالة بنجاح!\n📊 الإحصائيات:\n✔️ تم إرسالها إلى: **${sentCount}** عضو\n❌ فشل الإرسال: **${failedCount}** عضو`
+      content: `✅ تم إرسال الرسالة بنجاح! ${statusText}\n📊 الإحصائيات:\n✔️ تم إرسالها إلى: **${sentCount}** عضو\n❌ فشل الإرسال: **${failedCount}** عضو`
     });
   } catch (error) {
     console.error('sendBroadcast error:', error);
