@@ -1,0 +1,13 @@
+{
+  "name": "discord-broadcast-bot",
+  "version": "1.0.0",
+  "description": "Discord broadcast bot with slash commands",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "quick.db": "^9.1.7"
+  }
+}

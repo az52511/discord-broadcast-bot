@@ -1,0 +1,6 @@
+{
+  "token": "YOUR_DISCORD_BOT_TOKEN",
+  "allowedRoleId": "YOUR_ALLOWED_ROLE_ID",
+  "guildId": "YOUR_GUILD_ID",
+  "image": "https://example.com/your-image.jpg"
+}
