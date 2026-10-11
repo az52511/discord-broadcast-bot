@@ -9,7 +9,8 @@ const {
   TextInputBuilder,
   TextInputStyle,
   Partials,
-  SlashCommandBuilder
+  SlashCommandBuilder,
+  ChannelType
 } = require('discord.js');
 
 const { token, allowedRoleId, guildId, image, logsChannelId } = require('./config.json');
@@ -30,7 +31,8 @@ const bcCommand = new SlashCommandBuilder()
   .setName('broadcast')
   .setDescription('فتح لوحة البث');
 
-async function logBroadcastAction({
+// Logging function
+async function logBroadcastAction(client, {
   userId,
   userName,
   actionType,
@@ -39,11 +41,8 @@ async function logBroadcastAction({
   messagePreview,
   successCount,
   failureCount,
-  targetInfo,
-  guildName
+  targetInfo
 }) {
-  if (!logsChannelId) return;
-
   try {
     const logsChannel = client.channels.cache.get(logsChannelId);
     if (!logsChannel) {
@@ -52,30 +51,30 @@ async function logBroadcastAction({
     }
 
     const timestamp = new Date().toLocaleString('ar-EG', { timeZone: 'Asia/Riyadh' });
-
-    const embed = new EmbedBuilder()
+    
+    const logEmbed = new EmbedBuilder()
       .setColor('#3498db')
-      .setTitle('📋 تقرير استخدام البوت')
+      .setTitle('📋 تقرير البث')
+      .setThumbnail('https://cdn-icons-png.flaticon.com/512/3143/3143615.png')
       .addFields(
-        { name: '👤 المستخدم', value: `<@${userId}> • ${userName}`, inline: false },
+        { name: '👤 المستخدم', value: `<@${userId}> \`${userName}\` (\`${userId}\`)`, inline: false },
         { name: '🎯 نوع الإرسال', value: actionType, inline: true },
         { name: '📍 الهدف', value: targetType, inline: true },
-        { name: '🏷️ الاسم', value: targetName || 'غير محدد', inline: true },
-        { name: '💬 رسالة معاينة', value: `\`\`\`${messagePreview.slice(0, 180)}${messagePreview.length > 180 ? '...' : ''}\`\`\``, inline: false },
+        { name: '🏷️ اسم الهدف', value: targetName || 'N/A', inline: true },
+        { name: '💬 نص الرسالة (معاينة)', value: `\`\`\`${messagePreview.substring(0, 200)}${messagePreview.length > 200 ? '...' : ''}\`\`\``, inline: false },
         { name: '📊 الإحصائيات', value: `✅ نجح: **${successCount}**\n❌ فشل: **${failureCount}**`, inline: true },
-        { name: '🕒 التاريخ', value: timestamp, inline: true }
+        { name: '⏰ الوقت', value: timestamp, inline: true }
       );
 
-    if (guildName) {
-      embed.addFields({ name: '🏠 السيرفر', value: guildName, inline: true });
-    }
-
     if (targetInfo) {
-      embed.addFields({ name: '📌 تفاصيل إضافية', value: targetInfo, inline: false });
+      logEmbed.addFields({ name: '📌 معلومات إضافية', value: targetInfo, inline: false });
     }
 
-    await logsChannel.send({ embeds: [embed] });
+    logEmbed.setFooter({ text: 'Discord Broadcast Bot' });
 
+    await logsChannel.send({ embeds: [logEmbed] });
+
+    // Optional: Save to database for statistics
     await db.set(`broadcast_log_${Date.now()}`, {
       userId,
       userName,
@@ -84,24 +83,24 @@ async function logBroadcastAction({
       targetName,
       successCount,
       failureCount,
-      timestamp: new Date().toISOString(),
-      guildName
+      timestamp: new Date().toISOString()
     });
+
   } catch (error) {
-    console.error('❌ خطأ في تسجيل البوت:', error);
+    console.error('❌ خطأ في تسجيل البث:', error);
   }
 }
 
+// Get action type name
 function getActionTypeName(customId) {
-  const map = {
-    send_all: 'إرسال للجميع',
-    send_online: 'إرسال للمتصلين',
-    send_offline: 'إرسال للغير متصلين',
-    send_by_role: 'إرسال حسب الرتبة',
-    send_to_user: 'إرسال لشخص معين'
+  const types = {
+    'send_all': '🎤 إرسال للجميع',
+    'send_online': '🟢 إرسال للمتصلين',
+    'send_offline': '🔴 إرسال للغير متصلين',
+    'send_by_role': '🏷️ إرسال حسب الرتبة',
+    'send_to_user': '👤 إرسال لشخص معين'
   };
-
-  return map[customId] || customId;
+  return types[customId] || customId;
 }
 
 client.once('ready', async () => {
@@ -236,22 +235,22 @@ client.on('interactionCreate', async (interaction) => {
 
       if (interaction.customId === 'modal_to_user') {
         const userId = interaction.fields.getTextInputValue('userInput');
-
+        
         try {
           const user = await client.users.fetch(userId);
           await user.send({ content: messageText });
 
-          await logBroadcastAction({
+          // Log the action
+          await logBroadcastAction(client, {
             userId: interaction.user.id,
             userName: interaction.user.username,
             actionType: getActionTypeName('send_to_user'),
-            targetType: 'مستخدم معين',
+            targetType: '👤 مستخدم مفرد',
             targetName: user.username,
             messagePreview: messageText,
             successCount: 1,
             failureCount: 0,
-            targetInfo: `معرف المستخدم: \`${userId}\``,
-            guildName: guild.name
+            targetInfo: `معرف المستخدم: \`${userId}\``
           });
 
           return interaction.editReply({
@@ -259,18 +258,18 @@ client.on('interactionCreate', async (interaction) => {
           });
         } catch (error) {
           console.error(error);
-
-          await logBroadcastAction({
+          
+          // Log the failed action
+          await logBroadcastAction(client, {
             userId: interaction.user.id,
             userName: interaction.user.username,
             actionType: getActionTypeName('send_to_user'),
-            targetType: 'مستخدم معين',
+            targetType: '👤 مستخدم مفرد (فشل)',
             targetName: userId,
             messagePreview: messageText,
             successCount: 0,
             failureCount: 1,
-            targetInfo: `معرف المستخدم: \`${userId}\`\nالخطأ: ${error.message}`,
-            guildName: guild.name
+            targetInfo: `معرف المستخدم: \`${userId}\` - الخطأ: ${error.message}`
           });
 
           return interaction.editReply({
@@ -337,19 +336,18 @@ async function sendBroadcast(guild, messageText, status, interaction, actionType
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
+    // Log the action
     const statusLabel = status ? (status === 'online' ? 'المتصلين' : 'الغير متصلين') : 'الجميع';
-
-    await logBroadcastAction({
+    await logBroadcastAction(client, {
       userId: interaction.user.id,
       userName: interaction.user.username,
       actionType: getActionTypeName(actionType),
-      targetType: statusLabel,
+      targetType: `🎯 ${statusLabel}`,
       targetName: statusLabel,
       messagePreview: messageText,
       successCount: sentCount,
       failureCount: failedCount,
-      targetInfo: `إجمالي الأعضاء المعالجين: \`${sentCount + failedCount}\``,
-      guildName: guild.name
+      targetInfo: `إجمالي الأعضاء المعالجين: \`${sentCount + failedCount}\``
     });
 
     const statusText = status ? `(${status === 'online' ? 'المتصلين' : 'الغير متصلين'})` : '(الجميع)';
@@ -389,17 +387,17 @@ async function sendBroadcastByRole(guild, messageText, roleId, interaction, clie
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
-    await logBroadcastAction({
+    // Log the action
+    await logBroadcastAction(client, {
       userId: interaction.user.id,
       userName: interaction.user.username,
       actionType: getActionTypeName('send_by_role'),
-      targetType: 'رتبة معينة',
+      targetType: '🏷️ رتبة معينة',
       targetName: roleName,
       messagePreview: messageText,
       successCount: sentCount,
       failureCount: failedCount,
-      targetInfo: `معرف الرتبة: \`${roleId}\`\nإجمالي الأعضاء: \`${sentCount + failedCount}\``,
-      guildName: guild.name
+      targetInfo: `معرف الرتبة: \`${roleId}\`\nإجمالي الأعضاء: \`${sentCount + failedCount}\``
     });
 
     return interaction.editReply({
