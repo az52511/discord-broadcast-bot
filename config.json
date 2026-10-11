@@ -1,6 +1,7 @@
 {
-  "token": "YOUR_DISCORD_BOT_TOKEN",
-  "allowedRoleId": "YOUR_ALLOWED_ROLE_ID",
-  "guildId": "YOUR_GUILD_ID",
-  "image": "https://example.com/your-image.jpg"
+  "token": "YOUR_BOT_TOKEN",
+  "allowedRoleId": "ROLE_ID",
+  "guildId": "GUILD_ID",
+  "image": "IMAGE_URL",
+  "logsChannelId": "LOGS_CHANNEL_ID"
 }
