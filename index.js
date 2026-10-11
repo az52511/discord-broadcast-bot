@@ -12,12 +12,12 @@ const {
   SlashCommandBuilder
 } = require('discord.js');
 
-// استيراد البيانات من ملف الإعدادات
+// Import configuration from config.json file
 const { token, allowedRoleId, guildId, image, logsChannelId } = require('./config.json');
 const { QuickDB } = require('quick.db');
 const db = new QuickDB();
 
-// إنشاء عميل البوت
+// Initialize the Discord bot client
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -28,14 +28,14 @@ const client = new Client({
   partials: [Partials.GuildMember]
 });
 
-// تعريف أمر السلاش
+// Define the slash command
 const broadcastCommand = new SlashCommandBuilder()
   .setName('broadcast')
   .setDescription('Open broadcast control panel');
 
 /**
- * دالة تسجيل جميع أنشطة البث في قناة مخصصة وقاعدة البيانات
- * تتتبع: من استخدم الأمر، نوع الإرسال، الهدف، والإحصائيات
+ * Logs all broadcast activities to a dedicated channel and database
+ * Tracks: who used the command, broadcast type, target, and statistics
  */
 async function logBroadcastAction({
   userId,
@@ -61,8 +61,8 @@ async function logBroadcastAction({
       return;
     }
 
-    // تنسيق الوقت والتاريخ بالتوقيت السعودي
-    const timestamp = new Date().toLocaleString('ar-EG', {
+    // Format timestamp with Saudi Arabia timezone
+    const timestamp = new Date().toLocaleString('en-US', {
       timeZone: 'Asia/Riyadh',
       year: 'numeric',
       month: '2-digit',
@@ -72,7 +72,7 @@ async function logBroadcastAction({
       second: '2-digit'
     });
 
-    // بناء رسالة السجل
+    // Build the log message embed
     const logEmbed = new EmbedBuilder()
       .setColor('#2563eb')
       .setTitle('📊 Broadcast Activity Log')
@@ -120,7 +120,7 @@ async function logBroadcastAction({
         }
       );
 
-    // إضافة معلومات إضافية إذا كانت موجودة
+    // Add additional info if provided
     if (additionalInfo) {
       logEmbed.addFields({
         name: 'Additional Info',
@@ -133,10 +133,10 @@ async function logBroadcastAction({
       text: 'Discord Broadcast Bot | Activity Logger'
     });
 
-    // إرسال الرسالة إلى قناة السجلات
+    // Send the log message to logs channel
     await logsChannel.send({ embeds: [logEmbed] });
 
-    // حفظ البيانات في قاعدة البيانات للإحصائيات المستقبلية
+    // Save data to database for future statistics
     await db.set(`broadcast_log_${Date.now()}`, {
       userId,
       userName,
@@ -156,7 +156,7 @@ async function logBroadcastAction({
 }
 
 /**
- * دالة للحصول على اسم الإجراء بصيغة واضحة وسهلة الفهم
+ * Get action type name in a clear and readable format
  */
 function getActionTypeName(customId) {
   const actionMap = {
@@ -171,7 +171,7 @@ function getActionTypeName(customId) {
 }
 
 /**
- * حدث جاهزية البوت - يعني أن البوت اتصل بالسيرفر بنجاح
+ * Bot ready event - fires when the bot successfully connects to Discord
  */
 client.once('ready', async () => {
   console.log('✅ Bot is Ready!');
@@ -186,16 +186,16 @@ client.once('ready', async () => {
 });
 
 /**
- * معالج التفاعلات الرئيسي - يتعامل مع الأوامر والأزرار والمودالات
+ * Main interaction handler - processes commands, buttons, and modals
  */
 client.on('interactionCreate', async (interaction) => {
   try {
-    // معالجة أوامر السلاش
+    // Handle slash commands
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === 'broadcast') {
         const member = interaction.guild.members.cache.get(interaction.user.id);
 
-        // التحقق من أن المستخدم عنده الرتبة المسموحة
+        // Verify user has the allowed role
         if (!member || !member.roles.cache.has(allowedRoleId)) {
           return interaction.reply({
             content: '❌ You do not have permission to use this command!',
@@ -203,7 +203,7 @@ client.on('interactionCreate', async (interaction) => {
           });
         }
 
-        // عرض لوحة التحكم الرئيسية
+        // Display the main control panel
         const controlPanelEmbed = new EmbedBuilder()
           .setColor('#1e1e2e')
           .setTitle('🎙️ Broadcast Control Panel')
@@ -251,11 +251,11 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    // معالجة الأزرار - عند الضغط على أي زر تظهر نافذة إدخال
+    // Handle button clicks - shows input modal
     if (interaction.isButton()) {
       let modalId = null;
 
-      // تحديد نوع المودال حسب الزر المضغوط
+      // Determine modal type based on button clicked
       if (interaction.customId === 'send_all') {
         modalId = 'modal_all';
       } else if (interaction.customId === 'send_online') {
@@ -270,19 +270,19 @@ client.on('interactionCreate', async (interaction) => {
 
       if (!modalId) return;
 
-      // إنشاء المودال (نافذة الإدخال)
+      // Create the input modal
       const messageModal = new ModalBuilder()
         .setCustomId(modalId)
         .setTitle('✍️ Write Your Message');
 
-      // حقل الرسالة - إجباري لجميع الحالات
+      // Message field - required for all cases
       const messageInput = new TextInputBuilder()
         .setCustomId('messageInput')
         .setLabel('Enter your message here')
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(true);
 
-      // إذا كان الإرسال لمستخدم معين - نضيف حقل معرف المستخدم
+      // For sending to specific user - add User ID field
       if (modalId === 'modal_to_user') {
         const userIdInput = new TextInputBuilder()
           .setCustomId('userInput')
@@ -295,7 +295,7 @@ client.on('interactionCreate', async (interaction) => {
           new ActionRowBuilder().addComponents(userIdInput)
         );
       }
-      // إذا كان الإرسال حسب رتبة معينة - نضيف حقل معرف الرتبة
+      // For sending by role - add Role ID field
       else if (modalId === 'modal_by_role') {
         const roleIdInput = new TextInputBuilder()
           .setCustomId('roleInput')
@@ -308,37 +308,37 @@ client.on('interactionCreate', async (interaction) => {
           new ActionRowBuilder().addComponents(roleIdInput)
         );
       }
-      // الإرسال للجميع أو حسب الحالة (متصل/غير متصل)
+      // For sending to all or by status
       else {
         messageModal.addComponents(
           new ActionRowBuilder().addComponents(messageInput)
         );
       }
 
-      // عرض المودال للمستخدم
+      // Show the modal to user
       await interaction.showModal(messageModal);
       return;
     }
 
-    // معالجة إرسال المودال - استقبال البيانات المدخلة
+    // Handle modal submissions - receive user input
     if (interaction.isModalSubmit()) {
       const messageText = interaction.fields.getTextInputValue('messageInput');
       const guild = interaction.guild;
 
       if (!guild) return;
 
-      // تأجيل الرد للسماح بمعالجة العملية (قد تستغرق وقت)
+      // Defer the reply to allow time for processing
       await interaction.deferReply({ ephemeral: true });
 
-      // حالة الإرسال لمستخدم معين
+      // Case: Send to specific user
       if (interaction.customId === 'modal_to_user') {
         const userId = interaction.fields.getTextInputValue('userInput');
 
         try {
-          // التحقق من أن المستخدم موجود
+          // Verify user exists
           const targetUser = await client.users.fetch(userId);
 
-          // التحقق من أن المستخدم عضو في السيرفر
+          // Verify user is in the server
           const targetMember = await guild.members.fetch(userId).catch(() => null);
 
           if (!targetMember) {
@@ -360,10 +360,10 @@ client.on('interactionCreate', async (interaction) => {
             });
           }
 
-          // محاولة إرسال الرسالة للمستخدم
+          // Send the message to user
           await targetUser.send({ content: messageText });
 
-          // تسجيل العملية الناجحة
+          // Log successful action
           await logBroadcastAction({
             userId: interaction.user.id,
             userName: interaction.user.username,
@@ -384,7 +384,7 @@ client.on('interactionCreate', async (interaction) => {
         } catch (error) {
           console.error('Error sending to user:', error);
 
-          // تسجيل العملية الفاشلة
+          // Log failed action
           await logBroadcastAction({
             userId: interaction.user.id,
             userName: interaction.user.username,
@@ -404,12 +404,12 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // حالة الإرسال حسب رتبة معينة
+      // Case: Send by role
       if (interaction.customId === 'modal_by_role') {
         const roleId = interaction.fields.getTextInputValue('roleInput');
         const targetRole = guild.roles.cache.get(roleId);
 
-        // التحقق من أن الرتبة موجودة
+        // Verify role exists
         if (!targetRole) {
           return interaction.editReply({
             content: '❌ Role not found or invalid Role ID.\n💡 Make sure the Role ID is correct.'
@@ -420,19 +420,19 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      // حالة الإرسال للجميع
+      // Case: Send to all members
       if (interaction.customId === 'modal_all') {
         await sendBroadcast(guild, messageText, null, interaction, 'send_all');
         return;
       }
 
-      // حالة الإرسال للمتصلين فقط
+      // Case: Send to online members only
       if (interaction.customId === 'modal_online') {
         await sendBroadcast(guild, messageText, 'online', interaction, 'send_online');
         return;
       }
 
-      // حالة الإرسال للغير متصلين فقط
+      // Case: Send to offline members only
       if (interaction.customId === 'modal_offline') {
         await sendBroadcast(guild, messageText, 'offline', interaction, 'send_offline');
         return;
@@ -445,46 +445,46 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 /**
- * دالة البث للجميع أو حسب الحالة (متصل/غير متصل)
- * تقوم بإرسال الرسالة لعدة أعضاء مع تأخير لتجنب الأخطاء
+ * Broadcast function for all members or filtered by status
+ * Sends message to multiple members with delays to avoid rate limits
  */
 async function sendBroadcast(guild, messageText, status, interaction, actionType) {
   try {
-    // جلب جميع الأعضاء في السيرفر
+    // Fetch all members in the server
     const members = await guild.members.fetch();
     let successCount = 0;
     let failureCount = 0;
 
-    // الحلقة على جميع الأعضاء
+    // Loop through all members
     for (const member of members.values()) {
-      // تخطي البوتات (لا نرسل للبوتات)
+      // Skip bots
       if (member.user.bot) continue;
 
-      // إذا كان هناك فلتر حسب الحالة (متصل/غير متصل)
+      // Filter by status if provided
       if (status && member.presence?.status !== status) continue;
 
       try {
-        // محاولة إرسال الرسالة
+        // Attempt to send message
         await member.send({
           content: messageText,
           allowedMentions: { parse: [] }
         });
         successCount++;
       } catch (error) {
-        // إذا فشل الإرسال (مثلاً المستخدم عنده DM disabled)
+        // Failed to send (user might have DMs disabled)
         failureCount++;
       }
 
-      // تأخير 500ms بين كل رسالة لتجنب رسائل الخطأ من Discord
+      // Delay 500ms between messages to avoid Discord rate limiting
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
-    // تحديد تسمية نوع البث
+    // Determine the broadcast type label
     const statusLabel = status
       ? (status === 'online' ? 'Online Members' : 'Offline Members')
       : 'All Members';
 
-    // تسجيل العملية في قاعدة البيانات وقناة السجلات
+    // Log the action to database and logs channel
     await logBroadcastAction({
       userId: interaction.user.id,
       userName: interaction.user.username,
@@ -498,7 +498,7 @@ async function sendBroadcast(guild, messageText, status, interaction, actionType
       guildName: guild.name
     });
 
-    // إرسال رسالة النتيجة للمستخدم
+    // Send result message to user
     return interaction.editReply({
       content: `✅ Broadcast sent successfully!\n📊 **Statistics:**\n✔️ Success: **${successCount}** members\n❌ Failed: **${failureCount}** members`
     });
@@ -512,44 +512,44 @@ async function sendBroadcast(guild, messageText, status, interaction, actionType
 }
 
 /**
- * دالة البث حسب رتبة معينة
- * تقوم بإرسال الرسالة فقط للأعضاء اللي عندهم رتبة معينة
+ * Broadcast function for specific role
+ * Sends message only to members who have a specific role
  */
 async function sendBroadcastByRole(guild, messageText, roleId, interaction) {
   try {
-    // جلب جميع الأعضاء في السيرفر
+    // Fetch all members in the server
     const members = await guild.members.fetch();
     let successCount = 0;
     let failureCount = 0;
 
-    // الحصول على اسم الرتبة
+    // Get the role name
     const roleName = guild.roles.cache.get(roleId)?.name || 'Unknown Role';
 
-    // الحلقة على جميع الأعضاء
+    // Loop through all members
     for (const member of members.values()) {
-      // تخطي البوتات
+      // Skip bots
       if (member.user.bot) continue;
 
-      // التحقق من أن العضو عنده هذه الرتبة
+      // Verify member has the role
       if (!member.roles.cache.has(roleId)) continue;
 
       try {
-        // محاولة إرسال الرسالة
+        // Attempt to send message
         await member.send({
           content: messageText,
           allowedMentions: { parse: [] }
         });
         successCount++;
       } catch (error) {
-        // إذا فشل الإرسال
+        // Failed to send
         failureCount++;
       }
 
-      // تأخير 500ms بين كل رسالة
+      // Delay 500ms between messages
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
-    // تسجيل العملية
+    // Log the action
     await logBroadcastAction({
       userId: interaction.user.id,
       userName: interaction.user.username,
@@ -563,7 +563,7 @@ async function sendBroadcastByRole(guild, messageText, roleId, interaction) {
       guildName: guild.name
     });
 
-    // إرسال رسالة النتيجة
+    // Send result message
     return interaction.editReply({
       content: `✅ Broadcast sent successfully to role **${roleName}**!\n📊 **Statistics:**\n✔️ Success: **${successCount}** members\n❌ Failed: **${failureCount}** members`
     });
@@ -576,5 +576,5 @@ async function sendBroadcastByRole(guild, messageText, roleId, interaction) {
   }
 }
 
-// تسجيل دخول البوت باستخدام التوكن
+// Login bot with token
 client.login(token);
