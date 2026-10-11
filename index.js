@@ -12,7 +12,7 @@ const {
   SlashCommandBuilder
 } = require('discord.js');
 
-const { token, allowedRoleId, guildId, image } = require('./config.json');
+const { token, allowedRoleId, guildId, image, logsChannelId } = require('./config.json');
 const { QuickDB } = require('quick.db');
 const db = new QuickDB();
 
@@ -29,6 +29,80 @@ const client = new Client({
 const bcCommand = new SlashCommandBuilder()
   .setName('broadcast')
   .setDescription('فتح لوحة البث');
+
+async function logBroadcastAction({
+  userId,
+  userName,
+  actionType,
+  targetType,
+  targetName,
+  messagePreview,
+  successCount,
+  failureCount,
+  targetInfo,
+  guildName
+}) {
+  if (!logsChannelId) return;
+
+  try {
+    const logsChannel = client.channels.cache.get(logsChannelId);
+    if (!logsChannel) {
+      console.log('⚠️ قناة السجلات غير موجودة');
+      return;
+    }
+
+    const timestamp = new Date().toLocaleString('ar-EG', { timeZone: 'Asia/Riyadh' });
+
+    const embed = new EmbedBuilder()
+      .setColor('#3498db')
+      .setTitle('📋 تقرير استخدام البوت')
+      .addFields(
+        { name: '👤 المستخدم', value: `<@${userId}> • ${userName}`, inline: false },
+        { name: '🎯 نوع الإرسال', value: actionType, inline: true },
+        { name: '📍 الهدف', value: targetType, inline: true },
+        { name: '🏷️ الاسم', value: targetName || 'غير محدد', inline: true },
+        { name: '💬 رسالة معاينة', value: `\`\`\`${messagePreview.slice(0, 180)}${messagePreview.length > 180 ? '...' : ''}\`\`\``, inline: false },
+        { name: '📊 الإحصائيات', value: `✅ نجح: **${successCount}**\n❌ فشل: **${failureCount}**`, inline: true },
+        { name: '🕒 التاريخ', value: timestamp, inline: true }
+      );
+
+    if (guildName) {
+      embed.addFields({ name: '🏠 السيرفر', value: guildName, inline: true });
+    }
+
+    if (targetInfo) {
+      embed.addFields({ name: '📌 تفاصيل إضافية', value: targetInfo, inline: false });
+    }
+
+    await logsChannel.send({ embeds: [embed] });
+
+    await db.set(`broadcast_log_${Date.now()}`, {
+      userId,
+      userName,
+      actionType,
+      targetType,
+      targetName,
+      successCount,
+      failureCount,
+      timestamp: new Date().toISOString(),
+      guildName
+    });
+  } catch (error) {
+    console.error('❌ خطأ في تسجيل البوت:', error);
+  }
+}
+
+function getActionTypeName(customId) {
+  const map = {
+    send_all: 'إرسال للجميع',
+    send_online: 'إرسال للمتصلين',
+    send_offline: 'إرسال للغير متصلين',
+    send_by_role: 'إرسال حسب الرتبة',
+    send_to_user: 'إرسال لشخص معين'
+  };
+
+  return map[customId] || customId;
+}
 
 client.once('ready', async () => {
   console.log('✅ Bot is Ready!');
@@ -162,15 +236,43 @@ client.on('interactionCreate', async (interaction) => {
 
       if (interaction.customId === 'modal_to_user') {
         const userId = interaction.fields.getTextInputValue('userInput');
-        
+
         try {
           const user = await client.users.fetch(userId);
           await user.send({ content: messageText });
+
+          await logBroadcastAction({
+            userId: interaction.user.id,
+            userName: interaction.user.username,
+            actionType: getActionTypeName('send_to_user'),
+            targetType: 'مستخدم معين',
+            targetName: user.username,
+            messagePreview: messageText,
+            successCount: 1,
+            failureCount: 0,
+            targetInfo: `معرف المستخدم: \`${userId}\``,
+            guildName: guild.name
+          });
+
           return interaction.editReply({
             content: `✅ تم إرسال الرسالة إلى ${user.username} بنجاح!`
           });
         } catch (error) {
           console.error(error);
+
+          await logBroadcastAction({
+            userId: interaction.user.id,
+            userName: interaction.user.username,
+            actionType: getActionTypeName('send_to_user'),
+            targetType: 'مستخدم معين',
+            targetName: userId,
+            messagePreview: messageText,
+            successCount: 0,
+            failureCount: 1,
+            targetInfo: `معرف المستخدم: \`${userId}\`\nالخطأ: ${error.message}`,
+            guildName: guild.name
+          });
+
           return interaction.editReply({
             content: '❌ حدث خطأ أثناء إرسال الرسالة إلى المستخدم.\n💡 تأكد من أن معرف المستخدم صحيح.'
           });
@@ -187,22 +289,22 @@ client.on('interactionCreate', async (interaction) => {
           });
         }
 
-        await sendBroadcastByRole(guild, messageText, roleId, interaction);
+        await sendBroadcastByRole(guild, messageText, roleId, interaction, client);
         return;
       }
 
       if (interaction.customId === 'modal_all') {
-        await sendBroadcast(guild, messageText, null, interaction);
+        await sendBroadcast(guild, messageText, null, interaction, 'send_all', client);
         return;
       }
 
       if (interaction.customId === 'modal_online') {
-        await sendBroadcast(guild, messageText, 'online', interaction);
+        await sendBroadcast(guild, messageText, 'online', interaction, 'send_online', client);
         return;
       }
 
       if (interaction.customId === 'modal_offline') {
-        await sendBroadcast(guild, messageText, 'offline', interaction);
+        await sendBroadcast(guild, messageText, 'offline', interaction, 'send_offline', client);
         return;
       }
     }
@@ -211,7 +313,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-async function sendBroadcast(guild, messageText, status, interaction) {
+async function sendBroadcast(guild, messageText, status, interaction, actionType, client) {
   try {
     const members = await guild.members.fetch();
     let sentCount = 0;
@@ -219,6 +321,8 @@ async function sendBroadcast(guild, messageText, status, interaction) {
 
     for (const member of members.values()) {
       if (member.user.bot) continue;
+
+      if (status && member.presence?.status !== status) continue;
 
       try {
         await member.send({
@@ -233,6 +337,21 @@ async function sendBroadcast(guild, messageText, status, interaction) {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
+    const statusLabel = status ? (status === 'online' ? 'المتصلين' : 'الغير متصلين') : 'الجميع';
+
+    await logBroadcastAction({
+      userId: interaction.user.id,
+      userName: interaction.user.username,
+      actionType: getActionTypeName(actionType),
+      targetType: statusLabel,
+      targetName: statusLabel,
+      messagePreview: messageText,
+      successCount: sentCount,
+      failureCount: failedCount,
+      targetInfo: `إجمالي الأعضاء المعالجين: \`${sentCount + failedCount}\``,
+      guildName: guild.name
+    });
+
     const statusText = status ? `(${status === 'online' ? 'المتصلين' : 'الغير متصلين'})` : '(الجميع)';
     return interaction.editReply({
       content: `✅ تم إرسال الرسالة بنجاح! ${statusText}\n📊 الإحصائيات:\n✔️ تم إرسالها إلى: **${sentCount}** عضو\n❌ فشل الإرسال: **${failedCount}** عضو`
@@ -245,7 +364,7 @@ async function sendBroadcast(guild, messageText, status, interaction) {
   }
 }
 
-async function sendBroadcastByRole(guild, messageText, roleId, interaction) {
+async function sendBroadcastByRole(guild, messageText, roleId, interaction, client) {
   try {
     const members = await guild.members.fetch();
     let sentCount = 0;
@@ -269,6 +388,19 @@ async function sendBroadcastByRole(guild, messageText, roleId, interaction) {
 
       await new Promise(resolve => setTimeout(resolve, 500));
     }
+
+    await logBroadcastAction({
+      userId: interaction.user.id,
+      userName: interaction.user.username,
+      actionType: getActionTypeName('send_by_role'),
+      targetType: 'رتبة معينة',
+      targetName: roleName,
+      messagePreview: messageText,
+      successCount: sentCount,
+      failureCount: failedCount,
+      targetInfo: `معرف الرتبة: \`${roleId}\`\nإجمالي الأعضاء: \`${sentCount + failedCount}\``,
+      guildName: guild.name
+    });
 
     return interaction.editReply({
       content: `✅ تم إرسال الرسالة بنجاح للرتبة: **${roleName}**\n📊 الإحصائيات:\n✔️ تم إرسالها إلى: **${sentCount}** عضو\n❌ فشل الإرسال: **${failedCount}** عضو`
