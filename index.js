@@ -9,14 +9,15 @@ const {
   TextInputBuilder,
   TextInputStyle,
   Partials,
-  SlashCommandBuilder,
-  ChannelType
+  SlashCommandBuilder
 } = require('discord.js');
 
+// استيراد البيانات من ملف الإعدادات
 const { token, allowedRoleId, guildId, image, logsChannelId } = require('./config.json');
 const { QuickDB } = require('quick.db');
 const db = new QuickDB();
 
+// إنشاء عميل البوت
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -27,12 +28,16 @@ const client = new Client({
   partials: [Partials.GuildMember]
 });
 
-const bcCommand = new SlashCommandBuilder()
+// تعريف أمر السلاش
+const broadcastCommand = new SlashCommandBuilder()
   .setName('broadcast')
-  .setDescription('فتح لوحة البث');
+  .setDescription('Open broadcast control panel');
 
-// Logging function
-async function logBroadcastAction(client, {
+/**
+ * دالة تسجيل جميع أنشطة البث في قناة مخصصة وقاعدة البيانات
+ * تتتبع: من استخدم الأمر، نوع الإرسال، الهدف، والإحصائيات
+ */
+async function logBroadcastAction({
   userId,
   userName,
   actionType,
@@ -41,40 +46,97 @@ async function logBroadcastAction(client, {
   messagePreview,
   successCount,
   failureCount,
-  targetInfo
+  additionalInfo,
+  guildName
 }) {
+  if (!logsChannelId) {
+    console.log('⚠️ Logs channel ID not configured in config.json');
+    return;
+  }
+
   try {
     const logsChannel = client.channels.cache.get(logsChannelId);
     if (!logsChannel) {
-      console.log('⚠️ قناة السجلات غير موجودة');
+      console.log('⚠️ Logs channel not found');
       return;
     }
 
-    const timestamp = new Date().toLocaleString('ar-EG', { timeZone: 'Asia/Riyadh' });
-    
+    // تنسيق الوقت والتاريخ بالتوقيت السعودي
+    const timestamp = new Date().toLocaleString('ar-EG', {
+      timeZone: 'Asia/Riyadh',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+
+    // بناء رسالة السجل
     const logEmbed = new EmbedBuilder()
-      .setColor('#3498db')
-      .setTitle('📋 تقرير البث')
+      .setColor('#2563eb')
+      .setTitle('📊 Broadcast Activity Log')
       .setThumbnail('https://cdn-icons-png.flaticon.com/512/3143/3143615.png')
       .addFields(
-        { name: '👤 المستخدم', value: `<@${userId}> \`${userName}\` (\`${userId}\`)`, inline: false },
-        { name: '🎯 نوع الإرسال', value: actionType, inline: true },
-        { name: '📍 الهدف', value: targetType, inline: true },
-        { name: '🏷️ اسم الهدف', value: targetName || 'N/A', inline: true },
-        { name: '💬 نص الرسالة (معاينة)', value: `\`\`\`${messagePreview.substring(0, 200)}${messagePreview.length > 200 ? '...' : ''}\`\`\``, inline: false },
-        { name: '📊 الإحصائيات', value: `✅ نجح: **${successCount}**\n❌ فشل: **${failureCount}**`, inline: true },
-        { name: '⏰ الوقت', value: timestamp, inline: true }
+        {
+          name: 'User',
+          value: `<@${userId}> • **${userName}**`,
+          inline: false
+        },
+        {
+          name: 'Action Type',
+          value: actionType,
+          inline: true
+        },
+        {
+          name: 'Target Type',
+          value: targetType,
+          inline: true
+        },
+        {
+          name: 'Target Name',
+          value: targetName || 'N/A',
+          inline: true
+        },
+        {
+          name: 'Message Preview',
+          value: `\`\`\`${messagePreview.slice(0, 180)}${messagePreview.length > 180 ? '...' : ''}\`\`\``,
+          inline: false
+        },
+        {
+          name: 'Statistics',
+          value: `✅ Success: **${successCount}**\n❌ Failed: **${failureCount}**\n📈 Total: **${successCount + failureCount}**`,
+          inline: true
+        },
+        {
+          name: 'Server',
+          value: guildName || 'N/A',
+          inline: true
+        },
+        {
+          name: 'Timestamp',
+          value: timestamp,
+          inline: true
+        }
       );
 
-    if (targetInfo) {
-      logEmbed.addFields({ name: '📌 معلومات إضافية', value: targetInfo, inline: false });
+    // إضافة معلومات إضافية إذا كانت موجودة
+    if (additionalInfo) {
+      logEmbed.addFields({
+        name: 'Additional Info',
+        value: additionalInfo,
+        inline: false
+      });
     }
 
-    logEmbed.setFooter({ text: 'Discord Broadcast Bot' });
+    logEmbed.setFooter({
+      text: 'Discord Broadcast Bot | Activity Logger'
+    });
 
+    // إرسال الرسالة إلى قناة السجلات
     await logsChannel.send({ embeds: [logEmbed] });
 
-    // Optional: Save to database for statistics
+    // حفظ البيانات في قاعدة البيانات للإحصائيات المستقبلية
     await db.set(`broadcast_log_${Date.now()}`, {
       userId,
       userName,
@@ -83,95 +145,117 @@ async function logBroadcastAction(client, {
       targetName,
       successCount,
       failureCount,
-      timestamp: new Date().toISOString()
+      messagePreview,
+      timestamp: new Date().toISOString(),
+      guildName
     });
 
   } catch (error) {
-    console.error('❌ خطأ في تسجيل البث:', error);
+    console.error('❌ Error logging broadcast action:', error);
   }
 }
 
-// Get action type name
+/**
+ * دالة للحصول على اسم الإجراء بصيغة واضحة وسهلة الفهم
+ */
 function getActionTypeName(customId) {
-  const types = {
-    'send_all': '🎤 إرسال للجميع',
-    'send_online': '🟢 إرسال للمتصلين',
-    'send_offline': '🔴 إرسال للغير متصلين',
-    'send_by_role': '🏷️ إرسال حسب الرتبة',
-    'send_to_user': '👤 إرسال لشخص معين'
+  const actionMap = {
+    send_all: 'Send to All Members',
+    send_online: 'Send to Online Members',
+    send_offline: 'Send to Offline Members',
+    send_by_role: 'Send by Role',
+    send_to_user: 'Send to Specific User'
   };
-  return types[customId] || customId;
+
+  return actionMap[customId] || customId;
 }
 
+/**
+ * حدث جاهزية البوت - يعني أن البوت اتصل بالسيرفر بنجاح
+ */
 client.once('ready', async () => {
   console.log('✅ Bot is Ready!');
-  client.user.setActivity('/broadcast البث', { type: 'LISTENING' });
+  client.user.setActivity('/broadcast for control panel', { type: 'LISTENING' });
 
   try {
-    await client.application.commands.set([bcCommand.toJSON()], guildId);
+    await client.application.commands.set([broadcastCommand.toJSON()], guildId);
     console.log('✅ Slash command registered successfully');
   } catch (error) {
     console.error('❌ Error registering slash command:', error);
   }
 });
 
+/**
+ * معالج التفاعلات الرئيسي - يتعامل مع الأوامر والأزرار والمودالات
+ */
 client.on('interactionCreate', async (interaction) => {
   try {
+    // معالجة أوامر السلاش
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === 'broadcast') {
         const member = interaction.guild.members.cache.get(interaction.user.id);
 
+        // التحقق من أن المستخدم عنده الرتبة المسموحة
         if (!member || !member.roles.cache.has(allowedRoleId)) {
           return interaction.reply({
-            content: '❌ ليس لديك صلاحية لاستخدام هذا الأمر!',
+            content: '❌ You do not have permission to use this command!',
             ephemeral: true
           });
         }
 
-        const embed = new EmbedBuilder()
-          .setColor('#000000')
-          .setTitle('🎙️ لوحة تحكم البث')
+        // عرض لوحة التحكم الرئيسية
+        const controlPanelEmbed = new EmbedBuilder()
+          .setColor('#1e1e2e')
+          .setTitle('🎙️ Broadcast Control Panel')
           .setImage(image)
-          .setDescription('الرجاء اختيار نوع الإرسال للأعضاء.');
+          .setDescription('Select the type of broadcast for your members.')
+          .setFooter({ text: 'Click a button below to proceed' });
 
-        const row = new ActionRowBuilder().addComponents(
+        const actionRow = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setCustomId('send_all')
-            .setLabel('ارسل للجميع')
-            .setStyle(ButtonStyle.Primary),
+            .setLabel('Send to All')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('📢'),
 
           new ButtonBuilder()
             .setCustomId('send_online')
-            .setLabel('ارسل للمتصلين')
-            .setStyle(ButtonStyle.Success),
+            .setLabel('Send to Online')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('🟢'),
 
           new ButtonBuilder()
             .setCustomId('send_offline')
-            .setLabel('ارسل للغير المتصلين')
-            .setStyle(ButtonStyle.Danger),
+            .setLabel('Send to Offline')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('🔴'),
 
           new ButtonBuilder()
             .setCustomId('send_by_role')
-            .setLabel('ارسل حسب الرتبة')
-            .setStyle(ButtonStyle.Secondary),
+            .setLabel('Send by Role')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🏷️'),
 
           new ButtonBuilder()
             .setCustomId('send_to_user')
-            .setLabel('ارسل لشخص معين')
+            .setLabel('Send to User')
             .setStyle(ButtonStyle.Secondary)
+            .setEmoji('👤')
         );
 
         await interaction.reply({
-          embeds: [embed],
-          components: [row],
+          embeds: [controlPanelEmbed],
+          components: [actionRow],
           ephemeral: true
         });
       }
     }
 
+    // معالجة الأزرار - عند الضغط على أي زر تظهر نافذة إدخال
     if (interaction.isButton()) {
       let modalId = null;
 
+      // تحديد نوع المودال حسب الزر المضغوط
       if (interaction.customId === 'send_all') {
         modalId = 'modal_all';
       } else if (interaction.customId === 'send_online') {
@@ -186,229 +270,311 @@ client.on('interactionCreate', async (interaction) => {
 
       if (!modalId) return;
 
-      const modal = new ModalBuilder()
+      // إنشاء المودال (نافذة الإدخال)
+      const messageModal = new ModalBuilder()
         .setCustomId(modalId)
-        .setTitle('✍️ اكتب رسالتك');
+        .setTitle('✍️ Write Your Message');
 
+      // حقل الرسالة - إجباري لجميع الحالات
       const messageInput = new TextInputBuilder()
         .setCustomId('messageInput')
-        .setLabel('اكتب رسالتك هنا')
-        .setStyle(TextInputStyle.Paragraph);
+        .setLabel('Enter your message here')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true);
 
+      // إذا كان الإرسال لمستخدم معين - نضيف حقل معرف المستخدم
       if (modalId === 'modal_to_user') {
-        const userInput = new TextInputBuilder()
+        const userIdInput = new TextInputBuilder()
           .setCustomId('userInput')
-          .setLabel('أدخل معرف المستخدم (User ID)')
-          .setStyle(TextInputStyle.Short);
+          .setLabel('Enter User ID')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
 
-        modal.addComponents(
+        messageModal.addComponents(
           new ActionRowBuilder().addComponents(messageInput),
-          new ActionRowBuilder().addComponents(userInput)
+          new ActionRowBuilder().addComponents(userIdInput)
         );
-      } else if (modalId === 'modal_by_role') {
-        const roleInput = new TextInputBuilder()
+      }
+      // إذا كان الإرسال حسب رتبة معينة - نضيف حقل معرف الرتبة
+      else if (modalId === 'modal_by_role') {
+        const roleIdInput = new TextInputBuilder()
           .setCustomId('roleInput')
-          .setLabel('أدخل معرف الرتبة (Role ID)')
-          .setStyle(TextInputStyle.Short);
+          .setLabel('Enter Role ID')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
 
-        modal.addComponents(
+        messageModal.addComponents(
           new ActionRowBuilder().addComponents(messageInput),
-          new ActionRowBuilder().addComponents(roleInput)
+          new ActionRowBuilder().addComponents(roleIdInput)
         );
-      } else {
-        modal.addComponents(
+      }
+      // الإرسال للجميع أو حسب الحالة (متصل/غير متصل)
+      else {
+        messageModal.addComponents(
           new ActionRowBuilder().addComponents(messageInput)
         );
       }
 
-      await interaction.showModal(modal);
+      // عرض المودال للمستخدم
+      await interaction.showModal(messageModal);
       return;
     }
 
+    // معالجة إرسال المودال - استقبال البيانات المدخلة
     if (interaction.isModalSubmit()) {
       const messageText = interaction.fields.getTextInputValue('messageInput');
       const guild = interaction.guild;
 
       if (!guild) return;
 
+      // تأجيل الرد للسماح بمعالجة العملية (قد تستغرق وقت)
       await interaction.deferReply({ ephemeral: true });
 
+      // حالة الإرسال لمستخدم معين
       if (interaction.customId === 'modal_to_user') {
         const userId = interaction.fields.getTextInputValue('userInput');
-        
-        try {
-          const user = await client.users.fetch(userId);
-          await user.send({ content: messageText });
 
-          // Log the action
-          await logBroadcastAction(client, {
+        try {
+          // التحقق من أن المستخدم موجود
+          const targetUser = await client.users.fetch(userId);
+
+          // التحقق من أن المستخدم عضو في السيرفر
+          const targetMember = await guild.members.fetch(userId).catch(() => null);
+
+          if (!targetMember) {
+            await logBroadcastAction({
+              userId: interaction.user.id,
+              userName: interaction.user.username,
+              actionType: getActionTypeName('send_to_user'),
+              targetType: 'Specific User',
+              targetName: userId,
+              messagePreview: messageText,
+              successCount: 0,
+              failureCount: 1,
+              additionalInfo: `User ID: \`${userId}\` | Status: User not found in server`,
+              guildName: guild.name
+            });
+
+            return interaction.editReply({
+              content: '❌ User not found in this server.\n💡 Make sure the User ID is correct.'
+            });
+          }
+
+          // محاولة إرسال الرسالة للمستخدم
+          await targetUser.send({ content: messageText });
+
+          // تسجيل العملية الناجحة
+          await logBroadcastAction({
             userId: interaction.user.id,
             userName: interaction.user.username,
             actionType: getActionTypeName('send_to_user'),
-            targetType: '👤 مستخدم مفرد',
-            targetName: user.username,
+            targetType: 'Specific User',
+            targetName: targetUser.username,
             messagePreview: messageText,
             successCount: 1,
             failureCount: 0,
-            targetInfo: `معرف المستخدم: \`${userId}\``
+            additionalInfo: `User ID: \`${userId}\` | Username: \`${targetUser.username}\``,
+            guildName: guild.name
           });
 
           return interaction.editReply({
-            content: `✅ تم إرسال الرسالة إلى ${user.username} بنجاح!`
+            content: `✅ Message sent successfully to **${targetUser.username}**!`
           });
+
         } catch (error) {
-          console.error(error);
-          
-          // Log the failed action
-          await logBroadcastAction(client, {
+          console.error('Error sending to user:', error);
+
+          // تسجيل العملية الفاشلة
+          await logBroadcastAction({
             userId: interaction.user.id,
             userName: interaction.user.username,
             actionType: getActionTypeName('send_to_user'),
-            targetType: '👤 مستخدم مفرد (فشل)',
+            targetType: 'Specific User',
             targetName: userId,
             messagePreview: messageText,
             successCount: 0,
             failureCount: 1,
-            targetInfo: `معرف المستخدم: \`${userId}\` - الخطأ: ${error.message}`
+            additionalInfo: `User ID: \`${userId}\` | Error: ${error.message}`,
+            guildName: guild.name
           });
 
           return interaction.editReply({
-            content: '❌ حدث خطأ أثناء إرسال الرسالة إلى المستخدم.\n💡 تأكد من أن معرف المستخدم صحيح.'
+            content: '❌ Failed to send message to user.\n💡 The user might have DMs disabled.'
           });
         }
       }
 
+      // حالة الإرسال حسب رتبة معينة
       if (interaction.customId === 'modal_by_role') {
         const roleId = interaction.fields.getTextInputValue('roleInput');
         const targetRole = guild.roles.cache.get(roleId);
 
+        // التحقق من أن الرتبة موجودة
         if (!targetRole) {
           return interaction.editReply({
-            content: '❌ الرتبة غير موجودة أو المعرف غير صالح.'
+            content: '❌ Role not found or invalid Role ID.\n💡 Make sure the Role ID is correct.'
           });
         }
 
-        await sendBroadcastByRole(guild, messageText, roleId, interaction, client);
+        await sendBroadcastByRole(guild, messageText, roleId, interaction);
         return;
       }
 
+      // حالة الإرسال للجميع
       if (interaction.customId === 'modal_all') {
-        await sendBroadcast(guild, messageText, null, interaction, 'send_all', client);
+        await sendBroadcast(guild, messageText, null, interaction, 'send_all');
         return;
       }
 
+      // حالة الإرسال للمتصلين فقط
       if (interaction.customId === 'modal_online') {
-        await sendBroadcast(guild, messageText, 'online', interaction, 'send_online', client);
+        await sendBroadcast(guild, messageText, 'online', interaction, 'send_online');
         return;
       }
 
+      // حالة الإرسال للغير متصلين فقط
       if (interaction.customId === 'modal_offline') {
-        await sendBroadcast(guild, messageText, 'offline', interaction, 'send_offline', client);
+        await sendBroadcast(guild, messageText, 'offline', interaction, 'send_offline');
         return;
       }
     }
+
   } catch (error) {
     console.error('Error in interactionCreate:', error);
   }
 });
 
-async function sendBroadcast(guild, messageText, status, interaction, actionType, client) {
+/**
+ * دالة البث للجميع أو حسب الحالة (متصل/غير متصل)
+ * تقوم بإرسال الرسالة لعدة أعضاء مع تأخير لتجنب الأخطاء
+ */
+async function sendBroadcast(guild, messageText, status, interaction, actionType) {
   try {
+    // جلب جميع الأعضاء في السيرفر
     const members = await guild.members.fetch();
-    let sentCount = 0;
-    let failedCount = 0;
+    let successCount = 0;
+    let failureCount = 0;
 
+    // الحلقة على جميع الأعضاء
     for (const member of members.values()) {
+      // تخطي البوتات (لا نرسل للبوتات)
       if (member.user.bot) continue;
 
+      // إذا كان هناك فلتر حسب الحالة (متصل/غير متصل)
       if (status && member.presence?.status !== status) continue;
 
       try {
+        // محاولة إرسال الرسالة
         await member.send({
-          content: `${messageText}\n<@${member.user.id}>`,
-          allowedMentions: { parse: ['users'] }
+          content: messageText,
+          allowedMentions: { parse: [] }
         });
-        sentCount++;
+        successCount++;
       } catch (error) {
-        failedCount++;
+        // إذا فشل الإرسال (مثلاً المستخدم عنده DM disabled)
+        failureCount++;
       }
 
+      // تأخير 500ms بين كل رسالة لتجنب رسائل الخطأ من Discord
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
-    // Log the action
-    const statusLabel = status ? (status === 'online' ? 'المتصلين' : 'الغير متصلين') : 'الجميع';
-    await logBroadcastAction(client, {
+    // تحديد تسمية نوع البث
+    const statusLabel = status
+      ? (status === 'online' ? 'Online Members' : 'Offline Members')
+      : 'All Members';
+
+    // تسجيل العملية في قاعدة البيانات وقناة السجلات
+    await logBroadcastAction({
       userId: interaction.user.id,
       userName: interaction.user.username,
       actionType: getActionTypeName(actionType),
-      targetType: `🎯 ${statusLabel}`,
+      targetType: statusLabel,
       targetName: statusLabel,
       messagePreview: messageText,
-      successCount: sentCount,
-      failureCount: failedCount,
-      targetInfo: `إجمالي الأعضاء المعالجين: \`${sentCount + failedCount}\``
+      successCount: successCount,
+      failureCount: failureCount,
+      additionalInfo: `Total Processed: \`${successCount + failureCount}\` members`,
+      guildName: guild.name
     });
 
-    const statusText = status ? `(${status === 'online' ? 'المتصلين' : 'الغير متصلين'})` : '(الجميع)';
+    // إرسال رسالة النتيجة للمستخدم
     return interaction.editReply({
-      content: `✅ تم إرسال الرسالة بنجاح! ${statusText}\n📊 الإحصائيات:\n✔️ تم إرسالها إلى: **${sentCount}** عضو\n❌ فشل الإرسال: **${failedCount}** عضو`
+      content: `✅ Broadcast sent successfully!\n📊 **Statistics:**\n✔️ Success: **${successCount}** members\n❌ Failed: **${failureCount}** members`
     });
+
   } catch (error) {
     console.error('sendBroadcast error:', error);
     return interaction.editReply({
-      content: '❌ حدث خطأ أثناء محاولة البث.'
+      content: '❌ An error occurred while sending the broadcast.'
     });
   }
 }
 
-async function sendBroadcastByRole(guild, messageText, roleId, interaction, client) {
+/**
+ * دالة البث حسب رتبة معينة
+ * تقوم بإرسال الرسالة فقط للأعضاء اللي عندهم رتبة معينة
+ */
+async function sendBroadcastByRole(guild, messageText, roleId, interaction) {
   try {
+    // جلب جميع الأعضاء في السيرفر
     const members = await guild.members.fetch();
-    let sentCount = 0;
-    let failedCount = 0;
-    const roleName = guild.roles.cache.get(roleId)?.name || 'غير معروفة';
+    let successCount = 0;
+    let failureCount = 0;
 
+    // الحصول على اسم الرتبة
+    const roleName = guild.roles.cache.get(roleId)?.name || 'Unknown Role';
+
+    // الحلقة على جميع الأعضاء
     for (const member of members.values()) {
+      // تخطي البوتات
       if (member.user.bot) continue;
 
+      // التحقق من أن العضو عنده هذه الرتبة
       if (!member.roles.cache.has(roleId)) continue;
 
       try {
+        // محاولة إرسال الرسالة
         await member.send({
-          content: `${messageText}\n<@${member.user.id}>`,
-          allowedMentions: { parse: ['users'] }
+          content: messageText,
+          allowedMentions: { parse: [] }
         });
-        sentCount++;
+        successCount++;
       } catch (error) {
-        failedCount++;
+        // إذا فشل الإرسال
+        failureCount++;
       }
 
+      // تأخير 500ms بين كل رسالة
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
-    // Log the action
-    await logBroadcastAction(client, {
+    // تسجيل العملية
+    await logBroadcastAction({
       userId: interaction.user.id,
       userName: interaction.user.username,
       actionType: getActionTypeName('send_by_role'),
-      targetType: '🏷️ رتبة معينة',
+      targetType: 'Specific Role',
       targetName: roleName,
       messagePreview: messageText,
-      successCount: sentCount,
-      failureCount: failedCount,
-      targetInfo: `معرف الرتبة: \`${roleId}\`\nإجمالي الأعضاء: \`${sentCount + failedCount}\``
+      successCount: successCount,
+      failureCount: failureCount,
+      additionalInfo: `Role ID: \`${roleId}\` | Total Processed: \`${successCount + failureCount}\` members`,
+      guildName: guild.name
     });
 
+    // إرسال رسالة النتيجة
     return interaction.editReply({
-      content: `✅ تم إرسال الرسالة بنجاح للرتبة: **${roleName}**\n📊 الإحصائيات:\n✔️ تم إرسالها إلى: **${sentCount}** عضو\n❌ فشل الإرسال: **${failedCount}** عضو`
+      content: `✅ Broadcast sent successfully to role **${roleName}**!\n📊 **Statistics:**\n✔️ Success: **${successCount}** members\n❌ Failed: **${failureCount}** members`
     });
+
   } catch (error) {
     console.error('sendBroadcastByRole error:', error);
     return interaction.editReply({
-      content: '❌ حدث خطأ أثناء محاولة البث حسب الرتبة.'
+      content: '❌ An error occurred while sending the broadcast by role.'
     });
   }
 }
 
+// تسجيل دخول البوت باستخدام التوكن
 client.login(token);
