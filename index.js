@@ -170,26 +170,28 @@ function getActionTypeName(customId) {
   return actionMap[customId] || customId;
 }
 
-// If a mention for the recipient exists in the message, move it to its own last line; otherwise return original text
+// Always place the recipient mention on its own last line (remove duplicates if present)
 function placeMentionOnLastLine(messageText, userId) {
   try {
-    if (!messageText) return messageText || '';
+    const mention = `<@${userId}>`;
     const mentionRegex = new RegExp(`<@!?${userId}>`, 'g');
 
-    // If the message doesn't contain a mention for this user, return original message
-    if (!mentionRegex.test(messageText)) return messageText;
+    // If message is empty or only whitespace, return mention only
+    if (!messageText || messageText.trim() === '') return mention;
 
-    // Remove all occurrences of that user's mention and trim
-    const cleaned = messageText.replace(mentionRegex, '').trim();
+    // Remove existing occurrences of the mention for this user and trim
+    let cleaned = messageText.replace(mentionRegex, '').trim();
 
-    // If nothing left, return only the mention
-    if (cleaned === '') return `<@${userId}>`;
+    // Remove trailing whitespace/newlines
+    cleaned = cleaned.replace(/[ \t]+$/g, '').replace(/\n+$/g, '');
 
-    // Otherwise return cleaned text with mention on its own last line
-    return `${cleaned}\n<@${userId}>`;
+    // If nothing left after cleaning, return mention only
+    if (cleaned === '') return mention;
+
+    // Return cleaned text with mention on its own last line
+    return `${cleaned}\n${mention}`;
   } catch (e) {
-    // Fallback to original message on error
-    return messageText;
+    return messageText || `<@${userId}>`;
   }
 }
 
@@ -379,228 +381,4 @@ client.on('interactionCreate', async (interaction) => {
             });
 
             return interaction.editReply({
-              content: '❌ User not found in this server.\n💡 Make sure the User ID is correct.'
-            });
-          }
-
-          // Send the message to user (include mention and allow it)
-          await targetUser.send({
-            content: placeMentionOnLastLine(messageText, targetUser.id),
-            allowedMentions: { users: [targetUser.id] }
-          });
-
-          // Log successful action
-          await logBroadcastAction({
-            userId: interaction.user.id,
-            userName: interaction.user.username,
-            actionType: getActionTypeName('send_to_user'),
-            targetType: 'Specific User',
-            targetName: targetUser.username,
-            messagePreview: messageText,
-            successCount: 1,
-            failureCount: 0,
-            additionalInfo: `User ID: \`${userId}\` | Username: \`${targetUser.username}\``,
-            guildName: guild.name
-          });
-
-          return interaction.editReply({
-            content: `✅ Message sent successfully to **${targetUser.username}**!`
-          });
-
-        } catch (error) {
-          console.error('Error sending to user:', error);
-
-          // Log failed action
-          await logBroadcastAction({
-            userId: interaction.user.id,
-            userName: interaction.user.username,
-            actionType: getActionTypeName('send_to_user'),
-            targetType: 'Specific User',
-            targetName: userId,
-            messagePreview: messageText,
-            successCount: 0,
-            failureCount: 1,
-            additionalInfo: `User ID: \`${userId}\` | Error: ${error.message}`,
-            guildName: guild.name
-          });
-
-          return interaction.editReply({
-            content: '❌ Failed to send message to user.\n💡 The user might have DMs disabled.'
-          });
-        }
-      }
-
-      // Case: Send by role
-      if (interaction.customId === 'modal_by_role') {
-        const roleId = interaction.fields.getTextInputValue('roleInput');
-        const targetRole = guild.roles.cache.get(roleId);
-
-        // Verify role exists
-        if (!targetRole) {
-          return interaction.editReply({
-            content: '❌ Role not found or invalid Role ID.\n💡 Make sure the Role ID is correct.'
-          });
-        }
-
-        await sendBroadcastByRole(guild, messageText, roleId, interaction);
-        return;
-      }
-
-      // Case: Send to all members
-      if (interaction.customId === 'modal_all') {
-        await sendBroadcast(guild, messageText, null, interaction, 'send_all');
-        return;
-      }
-
-      // Case: Send to online members only
-      if (interaction.customId === 'modal_online') {
-        await sendBroadcast(guild, messageText, 'online', interaction, 'send_online');
-        return;
-      }
-
-      // Case: Send to offline members only
-      if (interaction.customId === 'modal_offline') {
-        await sendBroadcast(guild, messageText, 'offline', interaction, 'send_offline');
-        return;
-      }
-    }
-
-  } catch (error) {
-    console.error('Error in interactionCreate:', error);
-  }
-});
-
-/**
- * Broadcast function for all members or filtered by status
- * Sends message to multiple members with delays to avoid rate limits
- */
-async function sendBroadcast(guild, messageText, status, interaction, actionType) {
-  try {
-    // Fetch all members in the server
-    const members = await guild.members.fetch();
-    let successCount = 0;
-    let failureCount = 0;
-
-    // Loop through all members
-    for (const member of members.values()) {
-      // Skip bots
-      if (member.user.bot) continue;
-
-      // Filter by status if provided
-      if (status && member.presence?.status !== status) continue;
-
-      try {
-        // Attempt to send message and mention recipient automatically
-        await member.send({
-          content: placeMentionOnLastLine(messageText, member.id),
-          allowedMentions: { users: [member.id] }
-        });
-        successCount++;
-      } catch (error) {
-        // Failed to send (user might have DMs disabled)
-        failureCount++;
-      }
-
-      // Delay 500ms between messages to avoid Discord rate limiting
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-
-    // Determine the broadcast type label
-    const statusLabel = status
-      ? (status === 'online' ? 'Online Members' : 'Offline Members')
-      : 'All Members';
-
-    // Log the action to database and logs channel
-    await logBroadcastAction({
-      userId: interaction.user.id,
-      userName: interaction.user.username,
-      actionType: getActionTypeName(actionType),
-      targetType: statusLabel,
-      targetName: statusLabel,
-      messagePreview: messageText,
-      successCount: successCount,
-      failureCount: failureCount,
-      additionalInfo: `Total Processed: \`${successCount + failureCount}\` members`,
-      guildName: guild.name
-    });
-
-    // Send result message to user
-    return interaction.editReply({
-      content: `✅ Broadcast sent successfully!\n📊 **Statistics:**\n✔️ Success: **${successCount}** members\n❌ Failed: **${failureCount}** members`
-    });
-
-  } catch (error) {
-    console.error('sendBroadcast error:', error);
-    return interaction.editReply({
-      content: '❌ An error occurred while sending the broadcast.'
-    });
-  }
-}
-
-/**
- * Broadcast function for specific role
- * Sends message only to members who have a specific role
- */
-async function sendBroadcastByRole(guild, messageText, roleId, interaction) {
-  try {
-    // Fetch all members in the server
-    const members = await guild.members.fetch();
-    let successCount = 0;
-    let failureCount = 0;
-
-    // Get the role name
-    const roleName = guild.roles.cache.get(roleId)?.name || 'Unknown Role';
-
-    // Loop through all members
-    for (const member of members.values()) {
-      // Skip bots
-      if (member.user.bot) continue;
-
-      // Verify member has the role
-      if (!member.roles.cache.has(roleId)) continue;
-
-      try {
-        // Attempt to send message and mention recipient automatically
-        await member.send({
-          content: placeMentionOnLastLine(messageText, member.id),
-          allowedMentions: { users: [member.id] }
-        });
-        successCount++;
-      } catch (error) {
-        // Failed to send
-        failureCount++;
-      }
-
-      // Delay 500ms between messages
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-
-    // Log the action
-    await logBroadcastAction({
-      userId: interaction.user.id,
-      userName: interaction.user.username,
-      actionType: getActionTypeName('send_by_role'),
-      targetType: 'Specific Role',
-      targetName: roleName,
-      messagePreview: messageText,
-      successCount: successCount,
-      failureCount: failureCount,
-      additionalInfo: `Role ID: \`${roleId}\` | Total Processed: \`${successCount + failureCount}\` members`,
-      guildName: guild.name
-    });
-
-    // Send result message
-    return interaction.editReply({
-      content: `✅ Broadcast sent successfully to role **${roleName}**!\n📊 **Statistics:**\n✔️ Success: **${successCount}** members\n❌ Failed: **${failureCount}** members`
-    });
-
-  } catch (error) {
-    console.error('sendBroadcastByRole error:', error);
-    return interaction.editReply({
-      content: '❌ An error occurred while sending the broadcast by role.'
-    });
-  }
-}
-
-// Login bot with token
-client.login(token);
+{
