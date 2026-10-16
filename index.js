@@ -170,6 +170,29 @@ function getActionTypeName(customId) {
   return actionMap[customId] || customId;
 }
 
+// If a mention for the recipient exists in the message, move it to its own last line; otherwise return original text
+function placeMentionOnLastLine(messageText, userId) {
+  try {
+    if (!messageText) return messageText || '';
+    const mentionRegex = new RegExp(`<@!?${userId}>`, 'g');
+
+    // If the message doesn't contain a mention for this user, return original message
+    if (!mentionRegex.test(messageText)) return messageText;
+
+    // Remove all occurrences of that user's mention and trim
+    const cleaned = messageText.replace(mentionRegex, '').trim();
+
+    // If nothing left, return only the mention
+    if (cleaned === '') return `<@${userId}>`;
+
+    // Otherwise return cleaned text with mention on its own last line
+    return `${cleaned}\n<@${userId}>`;
+  } catch (e) {
+    // Fallback to original message on error
+    return messageText;
+  }
+}
+
 /**
  * Bot ready event - fires when the bot successfully connects to Discord
  */
@@ -362,7 +385,7 @@ client.on('interactionCreate', async (interaction) => {
 
           // Send the message to user (include mention and allow it)
           await targetUser.send({
-            content: `${messageText}\n<@${targetUser.id}>`,
+            content: placeMentionOnLastLine(messageText, targetUser.id),
             allowedMentions: { users: [targetUser.id] }
           });
 
@@ -469,7 +492,7 @@ async function sendBroadcast(guild, messageText, status, interaction, actionType
       try {
         // Attempt to send message and mention recipient automatically
         await member.send({
-          content: `${messageText}\n<@${member.id}>`,
+          content: placeMentionOnLastLine(messageText, member.id),
           allowedMentions: { users: [member.id] }
         });
         successCount++;
@@ -539,7 +562,7 @@ async function sendBroadcastByRole(guild, messageText, roleId, interaction) {
       try {
         // Attempt to send message and mention recipient automatically
         await member.send({
-          content: `${messageText}\n<@${member.id}>`,
+          content: placeMentionOnLastLine(messageText, member.id),
           allowedMentions: { users: [member.id] }
         });
         successCount++;
