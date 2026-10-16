@@ -360,8 +360,11 @@ client.on('interactionCreate', async (interaction) => {
             });
           }
 
-          // Send the message to user
-          await targetUser.send({ content: messageText });
+          // Send the message to user (include mention and allow it)
+          await targetUser.send({
+            content: `<@${targetUser.id}> ${messageText}`,
+            allowedMentions: { users: [targetUser.id] }
+          });
 
           // Log successful action
           await logBroadcastAction({
@@ -464,10 +467,10 @@ async function sendBroadcast(guild, messageText, status, interaction, actionType
       if (status && member.presence?.status !== status) continue;
 
       try {
-        // Attempt to send message
+        // Attempt to send message and mention recipient automatically
         await member.send({
-          content: messageText,
-          allowedMentions: { parse: [] }
+          content: `<@${member.id}> ${messageText}`,
+          allowedMentions: { users: [member.id] }
         });
         successCount++;
       } catch (error) {
@@ -534,10 +537,10 @@ async function sendBroadcastByRole(guild, messageText, roleId, interaction) {
       if (!member.roles.cache.has(roleId)) continue;
 
       try {
-        // Attempt to send message
+        // Attempt to send message and mention recipient automatically
         await member.send({
-          content: messageText,
-          allowedMentions: { parse: [] }
+          content: `<@${member.id}> ${messageText}`,
+          allowedMentions: { users: [member.id] }
         });
         successCount++;
       } catch (error) {
