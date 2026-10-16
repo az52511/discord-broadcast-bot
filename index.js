@@ -362,7 +362,7 @@ client.on('interactionCreate', async (interaction) => {
 
           // Send the message to user (include mention and allow it)
           await targetUser.send({
-            content: `<@${targetUser.id}> ${messageText}`,
+            content: `${messageText} <@${targetUser.id}>`,
             allowedMentions: { users: [targetUser.id] }
           });
 
@@ -469,7 +469,7 @@ async function sendBroadcast(guild, messageText, status, interaction, actionType
       try {
         // Attempt to send message and mention recipient automatically
         await member.send({
-          content: `<@${member.id}> ${messageText}`,
+          content: `${messageText} <@${member.id}>`,
           allowedMentions: { users: [member.id] }
         });
         successCount++;
@@ -539,7 +539,7 @@ async function sendBroadcastByRole(guild, messageText, roleId, interaction) {
       try {
         // Attempt to send message and mention recipient automatically
         await member.send({
-          content: `<@${member.id}> ${messageText}`,
+          content: `${messageText} <@${member.id}>`,
           allowedMentions: { users: [member.id] }
         });
         successCount++;
